@@ -1,0 +1,5 @@
+{
+  "name": "Quản Lý Giá Thực Phẩm",
+  "description": "Ứng dụng ghi chép giá cả thực phẩm theo trọng lượng hoặc số lượng và xuất file PDF.",
+  "requestFramePermissions": []
+}
