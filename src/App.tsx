@@ -19,8 +19,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FOOD_CATEGORIES, Category } from './constants';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 interface RecordedItem {
   id: string;
@@ -82,51 +82,86 @@ export default function App() {
     return recordedItems.reduce((sum, item) => sum + item.total, 0);
   }, [recordedItems]);
 
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    
-    doc.setFontSize(18);
-    doc.text('DANH SÁCH GIÁ THỰC PHẨM', 14, 22);
-    
-    doc.setFontSize(11);
-    doc.text(`Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}`, 14, 30);
-    
-    const tableData = recordedItems.map((item, index) => [
-      index + 1,
-      item.name,
-      item.category,
-      item.quantity,
-      item.unit,
-      new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price),
-      new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.total)
-    ]);
+  const exportPDF = async () => {
+    const element = document.getElementById('pdf-content');
+    if (!element) return;
 
-    autoTable(doc, {
-      startY: 35,
-      head: [['STT', 'Tên món', 'Loại', 'SL', 'ĐVT', 'Đơn giá', 'Thành tiền']],
-      body: tableData,
-      foot: [['', '', '', '', '', 'Tổng cộng:', new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(grandTotal)]],
-      theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185], textColor: 255 },
-      footStyles: { fillColor: [241, 196, 15], textColor: 0, fontStyle: 'bold' },
-      styles: { font: 'helvetica', fontSize: 10 }
-    });
+    const opt = {
+      margin: [10, 10, 10, 10] as [number, number, number, number],
+      filename: 'gia-thuc-pham.pdf',
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true,
+        letterRendering: true,
+      },
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
 
-    doc.save('gia-thuc-pham.pdf');
+    try {
+      await html2pdf().set(opt).from(element).save();
+    } catch (error) {
+      console.error('PDF generation failed', error);
+      alert('Có lỗi khi xuất file PDF. Vui lòng thử lại.');
+    }
   };
 
-  const sendEmail = () => {
+  const sendEmail = async () => {
     if (recordedItems.length === 0) return;
 
-    const itemsList = recordedItems.map(item => 
-      `- ${item.name} (${item.category}): ${item.quantity} ${item.unit} x ${new Intl.NumberFormat('vi-VN').format(item.price)} = ${new Intl.NumberFormat('vi-VN').format(item.total)}`
-    ).join('\n');
-    
-    const body = `Danh sách giá thực phẩm ngày ${new Date().toLocaleDateString('vi-VN')}:\n\n${itemsList}\n\nTổng cộng: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(grandTotal)}`;
-    
-    const mailtoLink = `mailto:duycuongtd1@gmail.com?subject=Danh sách giá thực phẩm - ${new Date().toLocaleDateString('vi-VN')}&body=${encodeURIComponent(body)}`;
-    
-    window.location.href = mailtoLink;
+    const element = document.getElementById('pdf-content');
+    if (!element) return;
+
+    const opt = {
+      margin: [10, 10, 10, 10] as [number, number, number, number],
+      filename: `gia-thuc-pham-${new Date().getTime()}.pdf`,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true,
+        letterRendering: true,
+      },
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    try {
+      const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
+      const pdfFile = new File([pdfBlob], `gia-thuc-pham-${new Date().getTime()}.pdf`, { type: 'application/pdf' });
+
+      // Try Web Share API
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        try {
+          await navigator.share({
+            files: [pdfFile],
+            title: 'Danh sách giá thực phẩm',
+            text: `Gửi Cường danh sách giá thực phẩm ngày ${new Date().toLocaleDateString('vi-VN')}`,
+          });
+          return;
+        } catch (error) {
+          console.log('Share failed', error);
+        }
+      }
+
+      // Fallback: Download + Mailto
+      await html2pdf().set(opt).from(element).save();
+      
+      const itemsList = recordedItems.map(item => 
+        `- ${item.name}: ${item.quantity} ${item.unit} x ${new Intl.NumberFormat('vi-VN').format(item.price)} = ${new Intl.NumberFormat('vi-VN').format(item.total)}`
+      ).join('\n');
+      
+      const body = `Chào Cường,\n\nTôi gửi danh sách giá thực phẩm ngày ${new Date().toLocaleDateString('vi-VN')}.\n(Vui lòng đính kèm file PDF đã tự động tải về vào email này)\n\nChi tiết:\n${itemsList}\n\nTổng cộng: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(grandTotal)}`;
+      
+      const mailtoLink = `mailto:duycuongtd1@gmail.com?subject=Danh sách giá thực phẩm - ${new Date().toLocaleDateString('vi-VN')}&body=${encodeURIComponent(body)}`;
+      
+      window.location.href = mailtoLink;
+      
+      alert("Đã tự động tải file PDF. Vui lòng đính kèm file này vào email vừa mở để gửi cho Cường.");
+    } catch (error) {
+      console.error('Email sending failed', error);
+      alert('Có lỗi khi chuẩn bị file gửi email. Vui lòng thử lại.');
+    }
   };
 
   const filteredCategories = useMemo(() => {
@@ -384,6 +419,55 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Hidden PDF Content Template (Off-screen for html2pdf compatibility) */}
+      <div style={{ position: 'absolute', left: '-9999px', top: '0', zIndex: -1 }}>
+        <div id="pdf-content" className="bg-white text-black font-sans" style={{ width: '190mm', boxSizing: 'border-box' }}>
+          <div className="text-center mb-8 pt-4">
+            <h1 className="text-3xl font-bold uppercase tracking-tight" style={{ color: '#065f46', margin: '0' }}>Danh Sách Giá Thực Phẩm</h1>
+            <p className="mt-2" style={{ color: '#6b7280', margin: '8px 0 0 0' }}>Ngày xuất: {new Date().toLocaleDateString('vi-VN')}</p>
+          </div>
+
+          <table className="w-full border-collapse border" style={{ borderColor: '#d1d5db', tableLayout: 'fixed' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#059669', color: '#ffffff' }}>
+                <th className="border p-2 text-left" style={{ borderColor: '#d1d5db', width: '35px' }}>STT</th>
+                <th className="border p-2 text-left" style={{ borderColor: '#d1d5db', width: 'auto' }}>Tên món</th>
+                <th className="border p-2 text-left" style={{ borderColor: '#d1d5db', width: '80px' }}>Loại</th>
+                <th className="border p-2 text-center" style={{ borderColor: '#d1d5db', width: '40px' }}>SL</th>
+                <th className="border p-2 text-center" style={{ borderColor: '#d1d5db', width: '45px' }}>ĐVT</th>
+                <th className="border p-2 text-right" style={{ borderColor: '#d1d5db', width: '85px' }}>Đơn giá</th>
+                <th className="border p-2 text-right" style={{ borderColor: '#d1d5db', width: '95px' }}>Thành tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recordedItems.map((item, index) => (
+                <tr key={item.id} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb' }}>
+                  <td className="border p-2 text-sm" style={{ borderColor: '#d1d5db' }}>{index + 1}</td>
+                  <td className="border p-2 text-sm font-medium" style={{ borderColor: '#d1d5db', wordBreak: 'break-word' }}>{item.name}</td>
+                  <td className="border p-2 text-sm" style={{ borderColor: '#d1d5db', color: '#4b5563', wordBreak: 'break-word' }}>{item.category}</td>
+                  <td className="border p-2 text-sm text-center" style={{ borderColor: '#d1d5db' }}>{item.quantity}</td>
+                  <td className="border p-2 text-sm text-center" style={{ borderColor: '#d1d5db' }}>{item.unit}</td>
+                  <td className="border p-2 text-sm text-right" style={{ borderColor: '#d1d5db' }}>{new Intl.NumberFormat('vi-VN').format(item.price)}</td>
+                  <td className="border p-2 text-sm text-right font-semibold" style={{ borderColor: '#d1d5db' }}>{new Intl.NumberFormat('vi-VN').format(item.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ backgroundColor: '#ecfdf5', fontWeight: 'bold', color: '#064e3b' }}>
+                <td colSpan={6} className="border p-3 text-right" style={{ borderColor: '#d1d5db' }}>Tổng cộng:</td>
+                <td className="border p-3 text-right font-bold" style={{ borderColor: '#d1d5db' }}>
+                  {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(grandTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div className="mt-12 pb-8 text-center text-sm italic" style={{ color: '#9ca3af' }}>
+            Cảm ơn bạn đã sử dụng ứng dụng Quản Lý Giá Thực Phẩm
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
